@@ -13,7 +13,7 @@ from sync_batchnorm import DataParallelWithCallback
 from frames_dataset import DatasetRepeater
 
 
-def train(config, generator, discriminator, kp_detector, checkpoint, log_dir, dataset, device_ids):
+def train(config, generator, discriminator, kp_detector, checkpoint, log_dir, dataset, device_ids,syncnet_model):
     train_params = config['train_params']
 
     optimizer_generator = torch.optim.Adam(generator.parameters(), lr=train_params['lr_generator'], betas=(0.5, 0.999))
@@ -38,7 +38,7 @@ def train(config, generator, discriminator, kp_detector, checkpoint, log_dir, da
         dataset = DatasetRepeater(dataset, train_params['num_repeats'])
     dataloader = DataLoader(dataset, batch_size=train_params['batch_size'], shuffle=True, num_workers=6, drop_last=True)
 
-    generator_full = GeneratorFullModel(kp_detector, generator, discriminator, train_params)
+    generator_full = GeneratorFullModel(kp_detector, generator, discriminator, train_params,syncnet_model)
     discriminator_full = DiscriminatorFullModel(kp_detector, generator, discriminator, train_params)
 
     if torch.cuda.is_available():
@@ -47,9 +47,20 @@ def train(config, generator, discriminator, kp_detector, checkpoint, log_dir, da
 
     with Logger(log_dir=log_dir, visualizer_params=config['visualizer_params'], checkpoint_freq=train_params['checkpoint_freq']) as logger:
         for epoch in trange(start_epoch, train_params['num_epochs']):
+            print("epoch",epoch)
+            iteratorx = 0
             for x in dataloader:
+                print("x",epoch,"-",iteratorx)
+                iteratorx += 1
+                
+                if type(x['indiv_mels']) is list:
+                    continue
+                if type(x['mel']) is list:
+                    continue
+                if type(x['window_driving']) is list:
+                    continue
+                
                 losses_generator, generated = generator_full(x)
-
                 loss_values = [val.mean() for val in losses_generator.values()]
                 loss = sum(loss_values)
 
@@ -74,6 +85,13 @@ def train(config, generator, discriminator, kp_detector, checkpoint, log_dir, da
                 losses_generator.update(losses_discriminator)
                 losses = {key: value.mean().detach().data.cpu().numpy() for key, value in losses_generator.items()}
                 logger.log_iter(losses=losses)
+
+            if type(x['indiv_mels']) is list:
+                continue
+            if type(x['mel']) is list:
+                continue
+            if type(x['window_driving']) is list:
+                continue
 
             scheduler_generator.step()
             scheduler_discriminator.step()

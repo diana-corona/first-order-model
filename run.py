@@ -20,6 +20,9 @@ from train import train
 from reconstruction import reconstruction
 from animate import animate
 
+#add SyncNet
+from modules.syncnet import SyncNet_color as SyncNet
+
 if __name__ == "__main__":
     
     if sys.version_info[0] < 3:
@@ -30,6 +33,9 @@ if __name__ == "__main__":
     parser.add_argument("--mode", default="train", choices=["train", "reconstruction", "animate"])
     parser.add_argument("--log_dir", default='log', help="path to log into")
     parser.add_argument("--checkpoint", default=None, help="path to checkpoint to restore")
+    #add SyncNet
+    parser.add_argument('--syncnet_checkpoint_path', help='Load the pre-trained Expert discriminator', required=True, type=str)
+    #
     parser.add_argument("--device_ids", default="0", type=lambda x: list(map(int, x.split(','))),
                         help="Names of the devices comma separated.")
     parser.add_argument("--verbose", dest="verbose", action="store_true", help="Print model architecture")
@@ -59,10 +65,50 @@ if __name__ == "__main__":
         discriminator.to(opt.device_ids[0])
     if opt.verbose:
         print(discriminator)
+    
+
+    #add SyncNet
+    def load_checkpoint_path(checkpoint_path):
+        if torch.cuda.is_available():
+            checkpoint = torch.load(checkpoint_path)
+        else:
+            checkpoint = torch.load(checkpoint_path, map_location=lambda storage, loc: storage)
+        return checkpoint
+
+    def load_checkpoint(path, model, optimizer, reset_optimizer=False):
+        print("Load checkpoint from: {}".format(path))
+        checkpoint = load_checkpoint_path(path)
+        s = checkpoint["state_dict"]
+        new_s = {}
+        for k, v in s.items():
+            new_s[k.replace('module.', '')] = v
+        model.load_state_dict(new_s)
+        if not reset_optimizer:
+            optimizer_state = checkpoint["optimizer"]
+            if optimizer_state is not None:
+                print("Load optimizer state from {}".format(path))
+                optimizer.load_state_dict(checkpoint["optimizer"])
+        return model
+
+    syncnet = SyncNet()
+    
+    for p in syncnet.parameters():
+        p.requires_grad = False
+
+    syncnet = load_checkpoint(opt.syncnet_checkpoint_path, syncnet, None, reset_optimizer=True)
+
+    
+    if torch.cuda.is_available():
+        syncnet.to(opt.device_ids[0])
+    if opt.verbose:
+        print(syncnet)
+    #
 
     kp_detector = KPDetector(**config['model_params']['kp_detector_params'],
                              **config['model_params']['common_params'])
 
+
+    
     if torch.cuda.is_available():
         kp_detector.to(opt.device_ids[0])
 
@@ -78,7 +124,7 @@ if __name__ == "__main__":
 
     if opt.mode == 'train':
         print("Training...")
-        train(config, generator, discriminator, kp_detector, opt.checkpoint, log_dir, dataset, opt.device_ids)
+        train(config, generator, discriminator, kp_detector, opt.checkpoint, log_dir, dataset, opt.device_ids, syncnet)
     elif opt.mode == 'reconstruction':
         print("Reconstruction...")
         reconstruction(config, generator, kp_detector, opt.checkpoint, log_dir, dataset)

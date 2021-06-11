@@ -37,7 +37,10 @@ class Logger:
         self.log_file.flush()
 
     def visualize_rec(self, inp, out):
-        image = self.visualizer.visualize(inp['driving'], inp['source'], out)
+        #print("logger window_driving",inp['window_driving'][0].shape)
+        #print("logger driving",inp['driving'].shape)
+
+        image = self.visualizer.visualize(inp['window_driving'][0].float(), inp['window_source'][0].float(), out)
         imageio.imsave(os.path.join(self.visualizations_dir, "%s-rec.png" % str(self.epoch).zfill(self.zfill_num)), image)
 
     def save_cpk(self, emergent=False):

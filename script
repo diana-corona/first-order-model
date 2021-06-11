@@ -1,0 +1,4 @@
+  
+#!/bin/bash
+python3 run.py --config config/LRS2.yaml --device_ids $CUDA_VISIBLE_DEVICES \
+  --log_dir $PERSISTENT/first-order-model-wav2lip --syncnet_checkpoint_path $PERSISTENT/wav2lip/lipsync_expert.pth 

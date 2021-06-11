@@ -61,6 +61,7 @@ class Discriminator(nn.Module):
         out = x
         if self.use_kp:
             heatmap = kp2gaussian(kp, x.shape[2:], self.kp_variance)
+            #print("out",out.shape, "heatmap",heatmap.shape)
             out = torch.cat([out, heatmap], dim=1)
 
         for down_block in self.down_blocks:

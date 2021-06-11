@@ -6,6 +6,12 @@ from torchvision import models
 import numpy as np
 from torch.autograd import grad
 
+#Adding syncnet
+from torch import nn
+from skimage.transform import resize
+from hparams import hparams
+import torch.nn.functional as F
+#
 
 class Vgg19(torch.nn.Module):
     """
@@ -129,11 +135,13 @@ class GeneratorFullModel(torch.nn.Module):
     Merge all generator related updates into single model for better multi-gpu usage
     """
 
-    def __init__(self, kp_extractor, generator, discriminator, train_params):
+    def __init__(self, kp_extractor, generator, discriminator, train_params,syncnet):
         super(GeneratorFullModel, self).__init__()
         self.kp_extractor = kp_extractor
         self.generator = generator
         self.discriminator = discriminator
+        self.syncnet = syncnet.cuda()
+        self.syncnet = syncnet.eval()
         self.train_params = train_params
         self.scales = train_params['scales']
         self.disc_scales = self.discriminator.scales
@@ -149,16 +157,57 @@ class GeneratorFullModel(torch.nn.Module):
                 self.vgg = self.vgg.cuda()
 
     def forward(self, x):
-        kp_source = self.kp_extractor(x['source'])
-        kp_driving = self.kp_extractor(x['driving'])
+        #Adding syncnet 
+        mel = x['mel']
+        indiv_mels = x['indiv_mels']
+        window_source = x['window_source']
+        window_driving = x['window_driving']
 
-        generated = self.generator(x['source'], kp_source=kp_source, kp_driving=kp_driving)
+        #reordenate to be [5 consecutive frames, 3 rgb, H, W]
+        #window_driving = window_driving.permute(0,2, 1, 3, 4)
+    
+        #batch needs to be only of 1 image 
+        batch_d = window_driving[0].float()
+        batch_s = window_source[0].float()
+
+        
+        kp_source = self.kp_extractor(batch_s)
+        kp_driving = self.kp_extractor(batch_d)
+        
+        #generator creates 5 consecutive frames
+        #generated = self.generator(x['source'], kp_source=kp_source, kp_driving=kp_driving)
+        generated = self.generator(batch_s, kp_source=kp_source, kp_driving=kp_driving)
         generated.update({'kp_source': kp_source, 'kp_driving': kp_driving})
 
         loss_values = {}
 
-        pyramide_real = self.pyramid(x['driving'])
+        pyramide_real = self.pyramid(batch_d)
         pyramide_generated = self.pyramid(generated['prediction'])
+
+        #Adding syncnet 
+        syncnet_T = 5
+        logloss = nn.BCELoss()
+        def cosine_loss(a, v, y):
+            a=a.cuda()
+            v=v.cuda()
+            y=y.cuda()
+            d = nn.functional.cosine_similarity(a, v)
+            d = d.cuda()
+            loss = logloss(d.unsqueeze(1), y)
+            return loss
+
+        def get_sync_loss(melx, gx):
+            gx = gx[:, :, :, gx.size(3)//2:]
+            gx = torch.cat([gx[:, :, i] for i in range(syncnet_T)], dim=1)
+            # B, 3 * T, H//2, W
+            melx = melx.float()
+            gx = gx.float()
+            a, v = self.syncnet(melx, gx)
+            y = torch.ones(gx.size(0), 1).float().cuda()
+            return cosine_loss(a, v, y)
+
+        
+        
 
         if sum(self.loss_weights['perceptual']) != 0:
             value_total = 0
@@ -169,8 +218,22 @@ class GeneratorFullModel(torch.nn.Module):
                 for i, weight in enumerate(self.loss_weights['perceptual']):
                     value = torch.abs(x_vgg[i] - y_vgg[i].detach()).mean()
                     value_total += self.loss_weights['perceptual'][i] * value
-                loss_values['perceptual'] = value_total
+                loss_values['perceptual'] = value_total*0.07
+            #print("loss_values['perceptual'] ",loss_values['perceptual'] )
 
+        if self.loss_weights['sync_loss'] != 0:
+            #source and deriving should be shape [bathc, 3, h, w]
+            #here window_driving will be an array of batch_size and (3, 5, H, W) so will be (batch_size,3, 5, H, W) 
+            # !!! array needs to be shape [batch size >1, 3, 5, 96, 96] - to get_sync_loss
+            g = generated['prediction'] #(5, 3, 256, 256)
+            g_resized = F.interpolate(g, size=(hparams.img_size,hparams.img_size)) #(5,3, 96, 96)  
+            g_resized = g_resized.clamp(min=0, max=255) #remove negative values or values greater than 255
+            g_resized = g_resized.permute(1,0, 2, 3) #(3, 5, 96, 96)
+            g_resized = g_resized.unsqueeze(0)#(1,3, 5, 96, 96)
+            sync_loss = get_sync_loss(mel, g_resized)
+            loss_values['sync_loss'] = sync_loss*0.03
+            #print("sync_loss",sync_loss)
+        #
         if self.loss_weights['generator_gan'] != 0:
             discriminator_maps_generated = self.discriminator(pyramide_generated, kp=detach_kp(kp_driving))
             discriminator_maps_real = self.discriminator(pyramide_real, kp=detach_kp(kp_driving))
@@ -191,10 +254,11 @@ class GeneratorFullModel(torch.nn.Module):
                         value = torch.abs(a - b).mean()
                         value_total += self.loss_weights['feature_matching'][i] * value
                     loss_values['feature_matching'] = value_total
+            #print("loss_values['feature_matching'] ",loss_values['feature_matching'] )
 
         if (self.loss_weights['equivariance_value'] + self.loss_weights['equivariance_jacobian']) != 0:
-            transform = Transform(x['driving'].shape[0], **self.train_params['transform_params'])
-            transformed_frame = transform.transform_frame(x['driving'])
+            transform = Transform(batch_d.shape[0], **self.train_params['transform_params'])
+            transformed_frame = transform.transform_frame(batch_d)
             transformed_kp = self.kp_extractor(transformed_frame)
 
             generated['transformed_frame'] = transformed_frame
@@ -218,6 +282,7 @@ class GeneratorFullModel(torch.nn.Module):
 
                 value = torch.abs(eye - value).mean()
                 loss_values['equivariance_jacobian'] = self.loss_weights['equivariance_jacobian'] * value
+            #print("loss_values['equivariance_jacobian'] ",loss_values['equivariance_jacobian'] )
 
         return loss_values, generated
 
@@ -241,9 +306,14 @@ class DiscriminatorFullModel(torch.nn.Module):
         self.loss_weights = train_params['loss_weights']
 
     def forward(self, x, generated):
-        pyramide_real = self.pyramid(x['driving'])
+        #pyramide_real = self.pyramid(x['driving'])
+        x['window_source'] = x['window_source'][0].float()
+        x['window_driving'] = x['window_driving'][0].float()
+        
+        pyramide_real = self.pyramid(x['window_driving'])
         pyramide_generated = self.pyramid(generated['prediction'].detach())
 
+        
         kp_driving = generated['kp_driving']
         discriminator_maps_generated = self.discriminator(pyramide_generated, kp=detach_kp(kp_driving))
         discriminator_maps_real = self.discriminator(pyramide_real, kp=detach_kp(kp_driving))
