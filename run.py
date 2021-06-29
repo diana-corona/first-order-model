@@ -19,6 +19,8 @@ import torch
 from train import train
 from reconstruction import reconstruction
 from animate import animate
+import face_alignment
+
 
 if __name__ == "__main__":
     
@@ -60,12 +62,19 @@ if __name__ == "__main__":
     if opt.verbose:
         print(discriminator)
 
-    kp_detector = KPDetector(**config['model_params']['kp_detector_params'],
+
+    fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=False)
+    
+    if torch.cuda.is_available():
+        fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=False, device='cuda')
+
+    print
+    kp_detector = KPDetector(fa,**config['model_params']['kp_detector_params'],
                              **config['model_params']['common_params'])
 
     if torch.cuda.is_available():
         kp_detector.to(opt.device_ids[0])
-
+        
     if opt.verbose:
         print(kp_detector)
 
@@ -77,7 +86,7 @@ if __name__ == "__main__":
         copy(opt.config, log_dir)
 
     if opt.mode == 'train':
-        print("Training...")
+        print("Training...",torch.cuda.is_available(),torch.cuda.device_count())
         train(config, generator, discriminator, kp_detector, opt.checkpoint, log_dir, dataset, opt.device_ids)
     elif opt.mode == 'reconstruction':
         print("Reconstruction...")

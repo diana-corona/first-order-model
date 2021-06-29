@@ -113,9 +113,13 @@ class Transform:
         return transformed
 
     def jacobian(self, coordinates):
+        #print("coordinates",coordinates.shape) #coordinates torch.Size([1, 10, 2])
         new_coordinates = self.warp_coordinates(coordinates)
+        #print("new_coordinates",new_coordinates.shape) #new_coordinates torch.Size([1, 10, 2])
         grad_x = grad(new_coordinates[..., 0].sum(), coordinates, create_graph=True)
+        #print("grad_x",len(grad_x)) 
         grad_y = grad(new_coordinates[..., 1].sum(), coordinates, create_graph=True)
+        #print("grad_y",len(grad_y))
         jacobian = torch.cat([grad_x[0].unsqueeze(-2), grad_y[0].unsqueeze(-2)], dim=-2)
         return jacobian
 
@@ -151,7 +155,7 @@ class GeneratorFullModel(torch.nn.Module):
     def forward(self, x):
         kp_source = self.kp_extractor(x['source'])
         kp_driving = self.kp_extractor(x['driving'])
-
+        
         generated = self.generator(x['source'], kp_source=kp_source, kp_driving=kp_driving)
         generated.update({'kp_source': kp_source, 'kp_driving': kp_driving})
 
@@ -195,7 +199,10 @@ class GeneratorFullModel(torch.nn.Module):
         if (self.loss_weights['equivariance_value'] + self.loss_weights['equivariance_jacobian']) != 0:
             transform = Transform(x['driving'].shape[0], **self.train_params['transform_params'])
             transformed_frame = transform.transform_frame(x['driving'])
+            #print("transformed_frame",transformed_frame.shape)
             transformed_kp = self.kp_extractor(transformed_frame)
+
+            #print("transformed_kp",transformed_kp['value'].shape)
 
             generated['transformed_frame'] = transformed_frame
             generated['transformed_kp'] = transformed_kp

@@ -17,6 +17,8 @@ from modules.keypoint_detector import KPDetector
 from animate import normalize_kp
 from scipy.spatial import ConvexHull
 
+import face_alignment
+
 
 if sys.version_info[0] < 3:
     raise Exception("You must use Python 3 or higher. Recommended version is Python 3.7")
@@ -31,8 +33,15 @@ def load_checkpoints(config_path, checkpoint_path, cpu=False):
     if not cpu:
         generator.cuda()
 
-    kp_detector = KPDetector(**config['model_params']['kp_detector_params'],
+    fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=False)
+    
+    if torch.cuda.is_available():
+        fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._2D, flip_input=False, device='cuda')
+
+    
+    kp_detector = KPDetector(fa,**config['model_params']['kp_detector_params'],
                              **config['model_params']['common_params'])
+    
     if not cpu:
         kp_detector.cuda()
     

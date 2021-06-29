@@ -6,12 +6,15 @@ from logger import Logger, Visualizer
 import numpy as np
 import imageio
 from sync_batchnorm import DataParallelWithCallback
-
+import subprocess, platform
 
 def reconstruction(config, generator, kp_detector, checkpoint, log_dir, dataset):
     png_dir = os.path.join(log_dir, 'reconstruction/png')
+    images_dir = os.path.join(log_dir, 'reconstruction/images')
+    video_dir = os.path.join(log_dir, 'reconstruction/video')
+    video_dir_temp = os.path.join(log_dir, 'reconstruction/video/temp')
     log_dir = os.path.join(log_dir, 'reconstruction')
-
+    
     if checkpoint is not None:
         Logger.load_cpk(checkpoint, generator=generator, kp_detector=kp_detector)
     else:
@@ -23,6 +26,15 @@ def reconstruction(config, generator, kp_detector, checkpoint, log_dir, dataset)
 
     if not os.path.exists(png_dir):
         os.makedirs(png_dir)
+        
+    if not os.path.exists(images_dir):
+        os.makedirs(images_dir)
+    
+    if not os.path.exists(video_dir):
+        os.makedirs(video_dir)
+    
+    if not os.path.exists(video_dir_temp):
+        os.makedirs(video_dir_temp)
 
     loss_list = []
     if torch.cuda.is_available():
@@ -51,6 +63,8 @@ def reconstruction(config, generator, kp_detector, checkpoint, log_dir, dataset)
                 out['kp_driving'] = kp_driving
                 del out['sparse_deformed']
                 predictions.append(np.transpose(out['prediction'].data.cpu().numpy(), [0, 2, 3, 1])[0])
+                
+                imageio.imsave(os.path.join(images_dir, x['name'][0]+ str(frame_idx) + '.png'), (255 * np.transpose(out['prediction'].data.cpu().numpy(), [0, 2, 3, 1])[0]).astype(np.uint8))
 
                 visualization = Visualizer(**config['visualizer_params']).visualize(source=source,
                                                                                     driving=driving, out=out)
@@ -58,6 +72,15 @@ def reconstruction(config, generator, kp_detector, checkpoint, log_dir, dataset)
 
                 loss_list.append(torch.abs(out['prediction'] - driving).mean().cpu().numpy())
 
+            video_name = os.path.join(video_dir, x['name'][0] + '.mp4')
+            video_name_temp = os.path.join(video_dir_temp, x['name'][0] + '.avi')
+            audio = os.path.join(config['dataset_params']['root_dir'],'test',x['name'][0],'audio.wav') 
+            print(audio)
+            imageio.mimsave(video_name_temp, (255 * np.array(predictions)).astype(np.uint8),fps=25)
+            command = 'ffmpeg -y -i {} -i {} -strict -2 -q:v 1 {}'.format(audio, video_name_temp,video_name )
+            subprocess.call(command, shell=platform.system() != 'Windows')
+            
+               
             predictions = np.concatenate(predictions, axis=1)
             imageio.imsave(os.path.join(png_dir, x['name'][0] + '.png'), (255 * predictions).astype(np.uint8))
 

@@ -104,7 +104,7 @@ class Visualizer:
     def draw_image_with_kp(self, image, kp_array):
         image = np.copy(image)
         spatial_size = np.array(image.shape[:2][::-1])[np.newaxis]
-        kp_array = spatial_size * (kp_array + 1) / 2
+        kp_array = spatial_size * (kp_array + 0.75) / 2* 1.5
         num_kp = kp_array.shape[0]
         for kp_ind, kp in enumerate(kp_array):
             rr, cc = circle(kp[1], kp[0], self.kp_size, shape=image.shape[:2])

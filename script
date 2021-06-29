@@ -1,0 +1,4 @@
+
+#!/bin/bash
+python3 run.py --config config/LRS2.yaml --device_ids $CUDA_VISIBLE_DEVICES \
+  --log_dir $PERSISTENT/fom-lrs2-fa

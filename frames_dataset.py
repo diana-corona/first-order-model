@@ -20,7 +20,11 @@ def read_video(name, frame_shape):
     """
 
     if os.path.isdir(name):
-        frames = sorted(os.listdir(name))
+        directory = sorted(os.listdir(name))
+        frames = []
+        for file in directory:
+            if not(file[-4:] == ".wav"):
+                frames.append(file)
         num_frames = len(frames)
         video_array = np.array(
             [img_as_float32(io.imread(os.path.join(name, frames[idx]))) for idx in range(num_frames)])
@@ -108,10 +112,16 @@ class FramesDataset(Dataset):
         video_name = os.path.basename(path)
 
         if self.is_train and os.path.isdir(path):
-            frames = os.listdir(path)
+            directory = os.listdir(path)
+            frames = []
+            for file in directory:
+                if not(file[-4:] == ".wav"):
+                    frames.append(file)
             num_frames = len(frames)
             frame_idx = np.sort(np.random.choice(num_frames, replace=True, size=2))
             video_array = [img_as_float32(io.imread(os.path.join(path, frames[idx]))) for idx in frame_idx]
+            #video_array = [io.imread(os.path.join(path, frames[idx])) for idx in frame_idx]
+       
         else:
             video_array = read_video(path, frame_shape=self.frame_shape)
             num_frames = len(video_array)
@@ -121,6 +131,8 @@ class FramesDataset(Dataset):
 
         if self.transform is not None:
             video_array = self.transform(video_array)
+            #video_array = [img_as_float32(image) for image in video_array]
+       
 
         out = {}
         if self.is_train:
