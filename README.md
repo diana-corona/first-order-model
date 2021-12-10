@@ -19,3 +19,6 @@ https://github.com/AliaksandrSiarohin/first-order-model
 ### Colab Demo 
 There is a  prepared a gui-demo using google-colab see: ```demo.ipynb```. 
 
+### Examples
+<img src="sup-mat/Example1.png" width="512"> 
+<img src="sup-mat/Example2.png" width="512"> 
