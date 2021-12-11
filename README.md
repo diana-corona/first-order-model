@@ -22,3 +22,9 @@ There is a  prepared a gui-demo using google-colab see: ```demo.ipynb```.
 ### Examples
 <img src="sup-mat/Example1.png" width="512"> 
 <img src="sup-mat/Example2.png" width="512"> 
+<img src="sup-mat/Example3.png" width="512"> 
+<img src="sup-mat/Example4.png" width="512"> 
+<img src="sup-mat/Example5.png" width="512"> 
+
+### Use cases
+1. Fix your 'bad' selfies 
